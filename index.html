@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#111111">
+<title>Good Grid</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+  :root { --bg:#111; --panel:#1c1c1c; --fg:#eee; --muted:#999; --accent:#4da3ff; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--fg);
+    font:15px/1.3 system-ui,-apple-system,Roboto,sans-serif; overflow:hidden; }
+  #stage { position:fixed; inset:0; bottom:var(--panel-h,0px); touch-action:none; }
+  canvas#view { width:100%; height:100%; display:block; }
+  #empty { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center;
+    justify-content:center; gap:14px; text-align:center; padding:24px; color:var(--muted); }
+  #empty.hidden { display:none; }
+  button, .btn { background:#2a2a2a; color:var(--fg); border:1px solid #3a3a3a; border-radius:10px;
+    padding:10px 14px; font:inherit; cursor:pointer; }
+  button.primary, .btn.primary { background:var(--accent); border-color:var(--accent); color:#000; font-weight:600; }
+  #panel { position:fixed; left:0; right:0; bottom:0; background:var(--panel); border-top:1px solid #2c2c2c;
+    padding:8px 12px calc(8px + env(safe-area-inset-bottom)); max-height:55vh; overflow-y:auto; }
+  #bar { display:flex; gap:8px; align-items:center; }
+  #bar .grow { flex:1; }
+  #opts { display:grid; grid-template-columns:auto 1fr auto; gap:10px 10px; align-items:center; margin-top:10px; }
+  #opts.hidden { display:none; }
+  #opts label { color:var(--muted); white-space:nowrap; }
+  #opts output { min-width:2.5em; text-align:right; font-variant-numeric:tabular-nums; }
+  #opts .full { grid-column:1 / -1; display:flex; flex-wrap:wrap; gap:14px; }
+  #opts .full label { color:var(--fg); display:flex; align-items:center; gap:6px; }
+  input[type=range] { width:100%; accent-color:var(--accent); }
+  input[type=color] { width:44px; height:32px; border:none; background:none; padding:0; }
+  input[type=checkbox] { width:20px; height:20px; accent-color:var(--accent); }
+  select { background:#2a2a2a; color:var(--fg); border:1px solid #3a3a3a; border-radius:8px; padding:6px; font:inherit; }
+  input[type=file] { display:none; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="view"></canvas>
+  <div id="empty">
+    <div style="font-size:20px;color:var(--fg)">Good Grid</div>
+    <div>Carica una foto per sovrapporre la griglia.</div>
+    <label class="btn primary" for="file">Scegli foto</label>
+  </div>
+</div>
+
+<div id="panel">
+  <div id="bar">
+    <label class="btn" for="file">Foto</label>
+    <button id="toggle">Griglia ▾</button>
+    <span class="grow"></span>
+    <button id="fit" title="Adatta">⤢</button>
+    <button id="export" class="primary">Esporta</button>
+  </div>
+  <div id="opts" class="hidden">
+    <label for="mode">Modalità</label>
+    <select id="mode" style="grid-column:2 / -1">
+      <option value="square">Celle quadrate</option>
+      <option value="rc">Righe × colonne</option>
+    </select>
+
+    <label for="cols">Colonne</label><input id="cols" type="range" min="1" max="40" value="4"><output id="colsO"></output>
+    <label for="rows">Righe</label><input id="rows" type="range" min="1" max="40" value="4"><output id="rowsO"></output>
+    <label for="width">Spessore</label><input id="width" type="range" min="1" max="20" value="3"><output id="widthO"></output>
+    <label for="alpha">Opacità</label><input id="alpha" type="range" min="10" max="100" value="85"><output id="alphaO"></output>
+    <label for="color">Colore</label><input id="color" type="color" value="#ff3b30"><span></span>
+
+    <div class="full">
+      <label><input id="diag" type="checkbox"> Diagonali</label>
+      <label><input id="labels" type="checkbox"> Coordinate</label>
+      <label><input id="gray" type="checkbox"> Bianco e nero</label>
+    </div>
+  </div>
+</div>
+
+<input id="file" type="file" accept="image/*">
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const view = $('view'), ctx = view.getContext('2d');
+  const stage = $('stage'), panel = $('panel');
+  const ui = ['mode','cols','rows','width','alpha','color','diag','labels','gray'];
+  const KEY = 'goodgrid.settings';
+
+  let img = null;          // HTMLImageElement / ImageBitmap
+  let imgW = 0, imgH = 0;
+  let grayCache = null;    // canvas with grayscale image
+  let scale = 1, ox = 0, oy = 0; // view transform: screen = img*scale + o
+  let dpr = window.devicePixelRatio || 1;
+
+  // ---------- settings ----------
+  function settings() {
+    return {
+      mode: $('mode').value,
+      cols: +$('cols').value,
+      rows: +$('rows').value,
+      width: +$('width').value,
+      alpha: +$('alpha').value / 100,
+      color: $('color').value,
+      diag: $('diag').checked,
+      labels: $('labels').checked,
+      gray: $('gray').checked,
+    };
+  }
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(settings())); } catch {} }
+  function load() {
+    let s; try { s = JSON.parse(localStorage.getItem(KEY)); } catch {}
+    if (!s) return;
+    for (const k of ui) {
+      if (!(k in s)) continue;
+      const el = $(k);
+      if (el.type === 'checkbox') el.checked = !!s[k];
+      else el.value = k === 'alpha' ? Math.round(s[k] * 100) : s[k];
+    }
+  }
+
+  // Effective grid: in square mode, rows follow image aspect so cells are square.
+  function grid(s) {
+    if (s.mode === 'square' && imgW) {
+      const cell = imgW / s.cols;
+      return { cols: s.cols, rows: imgH / cell, cellW: cell, cellH: cell };
+    }
+    return { cols: s.cols, rows: s.rows, cellW: imgW / s.cols, cellH: imgH / s.rows };
+  }
+
+  function syncUI() {
+    const s = settings(), g = grid(s);
+    $('rows').disabled = s.mode === 'square';
+    $('colsO').textContent = s.cols;
+    $('rowsO').textContent = s.mode === 'square' && imgW ? (Math.round(g.rows * 10) / 10) : s.rows;
+    $('widthO').textContent = s.width;
+    $('alphaO').textContent = Math.round(s.alpha * 100) + '%';
+  }
+
+  // ---------- drawing ----------
+  // Draws image + grid in image coordinates. `unit` = how many image px one "screen px" of line width is.
+  function drawScene(c, s, unit) {
+    c.drawImage(s.gray ? grayCache : img, 0, 0, imgW, imgH);
+    const g = grid(s);
+    c.save();
+    c.globalAlpha = s.alpha;
+    c.strokeStyle = s.color;
+    c.lineWidth = s.width * unit;
+    c.lineCap = 'butt';
+    c.beginPath();
+    for (let i = 1; i < g.cols; i++) { const x = i * g.cellW; c.moveTo(x, 0); c.lineTo(x, imgH); }
+    for (let j = 1; j < g.rows; j++) { const y = j * g.cellH; c.moveTo(0, y); c.lineTo(imgW, y); }
+    c.rect(0, 0, imgW, imgH);
+    c.stroke();
+    if (s.diag) {
+      c.lineWidth = Math.max(1, s.width * 0.6) * unit;
+      c.beginPath();
+      const nr = Math.ceil(g.rows);
+      for (let i = 0; i < g.cols; i++) for (let j = 0; j < nr; j++) {
+        const x0 = i * g.cellW, y0 = j * g.cellH;
+        const x1 = x0 + g.cellW, y1 = Math.min(y0 + g.cellH, imgH);
+        const ch = y1 - y0;
+        // clip partial last row proportionally
+        const fx = ch / g.cellH;
+        c.moveTo(x0, y0); c.lineTo(x0 + g.cellW * fx, y1);
+        c.moveTo(x1, y0); c.lineTo(x1 - g.cellW * fx, y1);
+      }
+      c.stroke();
+    }
+    if (s.labels) {
+      const fs = Math.max(10, Math.min(g.cellW, g.cellH) * 0.18, 12 * unit);
+      c.globalAlpha = Math.min(1, s.alpha + 0.1);
+      c.font = `600 ${fs}px system-ui,sans-serif`;
+      c.textBaseline = 'top';
+      const pad = fs * 0.25;
+      const nr = Math.ceil(g.rows);
+      for (let i = 0; i < g.cols; i++) for (let j = 0; j < nr; j++) {
+        const t = colName(i) + (j + 1);
+        const x = i * g.cellW + pad + c.lineWidth, y = j * g.cellH + pad + c.lineWidth;
+        if (y + fs > imgH) continue;
+        const w = c.measureText(t).width;
+        c.fillStyle = 'rgba(0,0,0,0.45)';
+        c.fillRect(x - pad / 2, y - pad / 2, w + pad, fs + pad / 2);
+        c.fillStyle = s.color;
+        c.fillText(t, x, y);
+      }
+    }
+    c.restore();
+  }
+  function colName(i) { let s = ''; i++; while (i > 0) { const r = (i - 1) % 26; s = String.fromCharCode(65 + r) + s; i = Math.floor((i - 1) / 26); } return s; }
+
+  let raf = 0;
+  function render() { if (!raf) raf = requestAnimationFrame(() => { raf = 0; paint(); }); }
+  function paint() {
+    const w = view.width, h = view.height;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = '#111'; ctx.fillRect(0, 0, w, h);
+    if (!img) return;
+    ctx.setTransform(scale * dpr, 0, 0, scale * dpr, ox * dpr, oy * dpr);
+    ctx.imageSmoothingQuality = 'high';
+    drawScene(ctx, settings(), 1 / scale);
+  }
+
+  function resize() {
+    document.documentElement.style.setProperty('--panel-h', panel.offsetHeight + 'px');
+    dpr = window.devicePixelRatio || 1;
+    const r = stage.getBoundingClientRect();
+    view.width = Math.round(r.width * dpr);
+    view.height = Math.round(r.height * dpr);
+    render();
+  }
+  function fit() {
+    if (!img) return;
+    const r = stage.getBoundingClientRect(), m = 12;
+    scale = Math.min((r.width - 2 * m) / imgW, (r.height - 2 * m) / imgH);
+    ox = (r.width - imgW * scale) / 2;
+    oy = (r.height - imgH * scale) / 2;
+    render();
+  }
+  function fitScale() { const r = stage.getBoundingClientRect(); return Math.min((r.width - 24) / imgW, (r.height - 24) / imgH); }
+
+  // ---------- image loading ----------
+  async function loadFile(f) {
+    if (!f) return;
+    let bmp;
+    try { bmp = await createImageBitmap(f, { imageOrientation: 'from-image' }); }
+    catch {
+      bmp = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = URL.createObjectURL(f); });
+    }
+    img = bmp; imgW = bmp.width; imgH = bmp.height;
+    grayCache = document.createElement('canvas');
+    grayCache.width = imgW; grayCache.height = imgH;
+    const g = grayCache.getContext('2d');
+    g.filter = 'grayscale(1)';
+    g.drawImage(img, 0, 0);
+    if (g.filter === 'none' || !('filter' in g)) { // fallback: manual luminance
+      g.drawImage(img, 0, 0);
+      const d = g.getImageData(0, 0, imgW, imgH), a = d.data;
+      for (let k = 0; k < a.length; k += 4) { const y = a[k] * .299 + a[k + 1] * .587 + a[k + 2] * .114; a[k] = a[k + 1] = a[k + 2] = y; }
+      g.putImageData(d, 0, 0);
+    }
+    $('empty').classList.add('hidden');
+    syncUI(); fit();
+  }
+  $('file').addEventListener('change', e => { loadFile(e.target.files[0]); e.target.value = ''; });
+
+  // ---------- gestures: pan, pinch, wheel, double-tap ----------
+  const pts = new Map();
+  let last = null, lastTap = 0;
+  function zoomAt(f, cx, cy) {
+    if (!img) return;
+    const min = fitScale() * 0.5, max = Math.max(8, fitScale() * 20);
+    const ns = Math.min(max, Math.max(min, scale * f));
+    f = ns / scale;
+    ox = cx - (cx - ox) * f; oy = cy - (cy - oy) * f; scale = ns;
+    render();
+  }
+  function local(e) { const r = stage.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+  function snapshot() {
+    const a = [...pts.values()];
+    if (a.length === 1) return { x: a[0].x, y: a[0].y, d: 0 };
+    const [p, q] = a;
+    return { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2, d: Math.hypot(p.x - q.x, p.y - q.y) };
+  }
+  stage.addEventListener('pointerdown', e => {
+    stage.setPointerCapture(e.pointerId);
+    pts.set(e.pointerId, local(e));
+    last = snapshot();
+    if (pts.size === 1) {
+      const now = Date.now();
+      if (now - lastTap < 300) { fit(); lastTap = 0; } else lastTap = now;
+    }
+  });
+  stage.addEventListener('pointermove', e => {
+    if (!pts.has(e.pointerId)) return;
+    pts.set(e.pointerId, local(e));
+    const cur = snapshot();
+    if (!img || !last) { last = cur; return; }
+    ox += cur.x - last.x; oy += cur.y - last.y;
+    if (pts.size >= 2 && last.d > 0) zoomAt(cur.d / last.d, cur.x, cur.y);
+    last = cur; render();
+  });
+  const up = e => { pts.delete(e.pointerId); last = pts.size ? snapshot() : null; };
+  stage.addEventListener('pointerup', up);
+  stage.addEventListener('pointercancel', up);
+  stage.addEventListener('wheel', e => { e.preventDefault(); const p = local(e); zoomAt(Math.exp(-e.deltaY * 0.0015), p.x, p.y); }, { passive: false });
+
+  // ---------- controls ----------
+  for (const k of ui) $(k).addEventListener('input', () => { syncUI(); save(); render(); });
+  $('toggle').addEventListener('click', () => {
+    const o = $('opts'); o.classList.toggle('hidden');
+    $('toggle').textContent = o.classList.contains('hidden') ? 'Griglia ▾' : 'Griglia ▴';
+    resize(); fit();
+  });
+  $('fit').addEventListener('click', fit);
+
+  $('export').addEventListener('click', async () => {
+    if (!img) { $('file').click(); return; }
+    const c = document.createElement('canvas');
+    c.width = imgW; c.height = imgH;
+    const x = c.getContext('2d');
+    // line width in export matches what you see at "fit" zoom
+    drawScene(x, settings(), 1 / fitScale());
+    const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+    const name = `griglia-${Date.now()}.png`;
+    const file = new File([blob], name, { type: 'image/png' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: 'Good Grid' }); return; }
+      catch (err) { if (err.name === 'AbortError') return; }
+    }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  });
+
+  // Receive images shared to the app (Android share target via launchQueue / file handling)
+  if ('launchQueue' in window) {
+    launchQueue.setConsumer(async p => { if (p.files && p.files.length) loadFile(await p.files[0].getFile()); });
+  }
+
+  window.addEventListener('resize', () => { resize(); if (img) fit(); });
+  load(); syncUI(); resize();
+
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js');
+
+  window.__goodgrid = { loadFile }; // test hook
+})();
+</script>
+</body>
+</html>
