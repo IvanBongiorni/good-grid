@@ -18,7 +18,9 @@
   canvas#view { position:absolute; inset:0; width:100%; height:100%; display:block; }
   #empty { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center;
     justify-content:center; gap:14px; text-align:center; padding:24px; color:var(--muted); }
-  #empty.hidden { display:none; }
+  #empty.loaded { inset:auto; top:10px; left:10px; padding:0; }
+  #empty.loaded .msg { display:none; }
+  #empty.loaded #pick { padding:8px 12px; background:rgba(0,0,0,.6); border-color:#555; color:#fff; font-weight:500; }
   #zoom { position:absolute; top:10px; right:10px; background:rgba(0,0,0,.55); color:#fff; padding:4px 8px;
     border-radius:8px; font-size:13px; font-variant-numeric:tabular-nums; pointer-events:none; opacity:0; transition:opacity .3s; }
   #zoom.show { opacity:1; }
@@ -51,16 +53,15 @@
 <div id="stage">
   <canvas id="view"></canvas>
   <div id="empty">
-    <div style="font-size:20px;color:var(--fg)">Good Grid</div>
-    <div>Load a photo to overlay a drawing grid.<br>Pinch to zoom, drag to move, double-tap to fit.</div>
-    <label class="btn primary" for="file">Choose photo</label>
+    <div class="msg" style="font-size:20px;color:var(--fg)">Good Grid</div>
+    <div class="msg">Load a photo to overlay a drawing grid.<br>Pinch to zoom, drag to move, double-tap to fit.</div>
+    <button id="pick" class="primary">Choose photo</button>
   </div>
   <div id="zoom"></div>
 </div>
 
 <div id="panel">
   <div id="bar">
-    <label class="btn" for="file">Photo</label>
     <span class="grow"></span>
     <button id="fit" title="Fit to screen">Fit</button>
     <button id="export" class="primary">Export</button>
@@ -255,7 +256,7 @@
     const d = g.getImageData(0, 0, imgW, imgH), a = d.data;
     for (let k = 0; k < a.length; k += 4) { const y = a[k] * .299 + a[k + 1] * .587 + a[k + 2] * .114; a[k] = a[k + 1] = a[k + 2] = y; }
     g.putImageData(d, 0, 0);
-    $('empty').classList.add('hidden');
+    $('empty').classList.add('loaded'); $('pick').textContent = 'New photo';
     if ($('square').checked) autoGrid();
     syncUI(); save(); fit();
   }
@@ -286,6 +287,7 @@
     return { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2, d: Math.hypot(p.x - q.x, p.y - q.y), n: 2 };
   }
   stage.addEventListener('pointerdown', e => {
+    if (e.target.closest('#empty')) return; // let the photo button get its tap
     try { stage.setPointerCapture(e.pointerId); } catch {}
     pts.set(e.pointerId, local(e));
     last = snapshot();
@@ -338,6 +340,7 @@
     setCount(k, d > 0 ? Math.floor(c) + 1 : Math.ceil(c) - 1);
   });
   $('fit').addEventListener('click', fit);
+  $('pick').addEventListener('click', () => $('file').click());
 
   $('export').addEventListener('click', async () => {
     if (!img) { $('file').click(); return; }
