@@ -76,7 +76,7 @@
       <label><input id="square" type="checkbox" checked> Square grid</label>
       <label><input id="diag" type="checkbox"> Diagonals</label>
       <label><input id="labels" type="checkbox"> Labels</label>
-      <label><input id="gray" type="checkbox"> Grayscale</label>
+      <label><input id="gray" type="checkbox"> Black &amp; white</label>
       <label>Color <input id="color" type="color" value="#ff3b30"></label>
     </div>
   </div>
@@ -250,14 +250,11 @@
     grayCache = document.createElement('canvas');
     grayCache.width = imgW; grayCache.height = imgH;
     const g = grayCache.getContext('2d');
-    g.filter = 'grayscale(1)';
+    // Manual luminance: ctx.filter is not applied reliably on every mobile browser.
     g.drawImage(img, 0, 0);
-    if (g.filter !== 'grayscale(1)') { // no canvas filter support: manual luminance
-      g.drawImage(img, 0, 0);
-      const d = g.getImageData(0, 0, imgW, imgH), a = d.data;
-      for (let k = 0; k < a.length; k += 4) { const y = a[k] * .299 + a[k + 1] * .587 + a[k + 2] * .114; a[k] = a[k + 1] = a[k + 2] = y; }
-      g.putImageData(d, 0, 0);
-    }
+    const d = g.getImageData(0, 0, imgW, imgH), a = d.data;
+    for (let k = 0; k < a.length; k += 4) { const y = a[k] * .299 + a[k + 1] * .587 + a[k + 2] * .114; a[k] = a[k + 1] = a[k + 2] = y; }
+    g.putImageData(d, 0, 0);
     $('empty').classList.add('hidden');
     if ($('square').checked) autoGrid();
     syncUI(); save(); fit();
