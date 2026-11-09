@@ -1,5 +1,6 @@
-// Offline cache: app works without network after first visit.
-const CACHE = 'goodgrid-v2';
+// Network-first: online you always get the latest version from GitHub Pages,
+// offline it falls back to the cached copy.
+const CACHE = 'goodgrid-v3';
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'privacy.html'];
 
 self.addEventListener('install', e => {
@@ -10,6 +11,14 @@ self.addEventListener('activate', e => {
     .then(() => self.clients.claim()));
 });
 self.addEventListener('fetch', e => {
-  if (e.request.method !== 'GET') return;
-  e.respondWith(caches.match(e.request).then(r => r || fetch(e.request)));
+  const req = e.request;
+  if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
+  e.respondWith(
+    fetch(req, { cache: 'no-cache' })
+      .then(res => {
+        if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); }
+        return res;
+      })
+      .catch(() => caches.match(req, { ignoreSearch: true }).then(r => r || caches.match('index.html')))
+  );
 });
