@@ -1,11 +1,11 @@
 {
   "name": "Good Grid",
   "short_name": "Good Grid",
-  "description": "Griglia per disegnare da foto. Gratis, senza pubblicità.",
+  "description": "Drawing grid over your photos. Free, no ads, works offline.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "orientation": "any",
+  "orientation": "portrait",
   "background_color": "#111111",
   "theme_color": "#111111",
   "icons": [
@@ -33,5 +33,6 @@
     "art",
     "productivity",
     "photo"
-  ]
+  ],
+  "lang": "en"
 }
