@@ -98,6 +98,7 @@
       <label><input id="square" type="checkbox" checked> Square grid</label>
       <label><input id="diag" type="checkbox"> Diagonals</label>
       <label><input id="labels" type="checkbox"> Labels</label>
+      <label><input id="edges" type="checkbox"> Edge labels</label>
       <label><input id="gray" type="checkbox"> Black &amp; white</label>
     </div>
   </div>
@@ -110,7 +111,7 @@
   const $ = id => document.getElementById(id);
   const view = $('view'), ctx = view.getContext('2d');
   const stage = $('stage');
-  const ui = ['square','width','alpha','hue','diag','labels','gray'];
+  const ui = ['square','width','alpha','hue','diag','labels','edges','gray'];
   const KEY = 'goodgrid.settings.v4';
   const MAXN = 100;
   // Line width: 10 roughly geometric steps (screen px).
@@ -137,6 +138,7 @@
       color: tone === 'black' ? '#000' : tone === 'white' ? '#fff' : `hsl(${+$('hue').value},100%,50%)`,
       diag: $('diag').checked,
       labels: $('labels').checked,
+      edges: $('edges').checked,
       gray: $('gray').checked,
     };
   }
@@ -237,6 +239,31 @@
         c.fillStyle = s.color;
         c.fillText(t, x, y);
       }
+    }
+    if (s.edges) {
+      // Column letters along the top edge, row numbers along the left edge, centred on each cell.
+      const fs = Math.max(Math.min(g.cellW, g.cellH) * 0.16, 11 * unit);
+      c.globalAlpha = Math.min(1, s.alpha + 0.1);
+      c.font = `600 ${fs}px system-ui,sans-serif`;
+      c.textBaseline = 'middle'; c.textAlign = 'center';
+      const pad = fs * 0.3, h = fs + pad, top = c.lineWidth + pad * 0.5 + h / 2;
+      const tag = (t, x, y) => {
+        const w = c.measureText(t).width + pad * 2;
+        c.fillStyle = 'rgba(0,0,0,0.45)'; c.fillRect(x - w / 2, y - h / 2, w, h);
+        c.fillStyle = s.color; c.fillText(t, x, y + fs * 0.04);
+      };
+      for (let i = 0; i < nc; i++) {
+        const x = Math.min(i * g.cellW + g.cellW / 2, (i * g.cellW + imgW) / 2);
+        if (x + fs > imgW) continue;
+        tag(colName(i), x, top);
+      }
+      for (let j = 0; j < nr; j++) {
+        const y = Math.min(j * g.cellH + g.cellH / 2, (j * g.cellH + imgH) / 2);
+        if (y + h / 2 > imgH) continue;
+        const t = String(j + 1), w = c.measureText(t).width + pad * 2;
+        tag(t, c.lineWidth + pad * 0.5 + w / 2, y);
+      }
+      c.textAlign = 'start';
     }
     c.restore();
   }
@@ -374,6 +401,9 @@
   // ---------- controls ----------
   for (const k of ui) $(k).addEventListener('input', () => { if (k === 'hue') tone = 'hue'; syncUI(); save(); render(); });
   $('hue').addEventListener('pointerdown', () => { if (tone !== 'hue') { tone = 'hue'; syncUI(); save(); render(); } });
+  // Cell labels and edge labels overlap and say the same thing: keep only one on.
+  $('labels').addEventListener('change', () => { if ($('labels').checked && $('edges').checked) { $('edges').checked = false; save(); render(); } });
+  $('edges').addEventListener('change', () => { if ($('edges').checked && $('labels').checked) { $('labels').checked = false; save(); render(); } });
   for (const b of document.querySelectorAll('#tones button'))
     b.addEventListener('click', () => { tone = b.dataset.tone; syncUI(); save(); render(); });
   // Turning square off: freeze the auto count to a whole number.
