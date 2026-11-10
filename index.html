@@ -34,6 +34,16 @@
     padding:10px 14px calc(10px + env(safe-area-inset-bottom)); }
   #bar { display:flex; gap:8px; align-items:center; }
   #bar .grow { flex:1; }
+  #cropBtn:not(.show) { display:none; }
+  body.cropping #bar, body.cropping #opts { display:none; }
+  #cropbar { display:none; }
+  body.cropping #cropbar { display:block; }
+  #cropbar .row { display:flex; gap:8px; align-items:center; }
+  #cropbar .row + .row { margin-top:10px; }
+  #cropbar .grow { flex:1; }
+  #ratios { overflow-x:auto; scrollbar-width:none; }
+  #ratios button { padding:8px 12px; white-space:nowrap; flex:none; }
+  #ratios button.on { background:var(--accent); border-color:var(--accent); color:#000; font-weight:600; }
   #opts { display:grid; grid-template-columns:auto 1fr 3em; gap:8px 12px; align-items:center; margin-top:10px; }
   #opts label { color:var(--muted); white-space:nowrap; }
   #opts output { text-align:right; font-variant-numeric:tabular-nums; }
@@ -82,9 +92,29 @@
 <div id="panel">
   <div id="bar">
     <button id="pick2">New photo</button>
+    <button id="cropBtn">Crop</button>
     <span class="grow"></span>
     <button id="fit" title="Fit to screen">Fit</button>
     <button id="export" class="primary">Export</button>
+  </div>
+  <div id="cropbar">
+    <div class="row" id="ratios">
+      <button data-r="0" class="on">Free</button>
+      <button data-r="1">1:1</button>
+      <button data-r="1.3333333">4:3</button>
+      <button data-r="0.75">3:4</button>
+      <button data-r="1.5">3:2</button>
+      <button data-r="0.6666667">2:3</button>
+      <button data-r="0.7071068">A4 ▯</button>
+      <button data-r="1.4142136">A4 ▭</button>
+    </div>
+    <div class="row">
+      <button id="cropRot" aria-label="Rotate 90°">⟳ 90°</button>
+      <button id="cropReset">Reset</button>
+      <span class="grow"></span>
+      <button id="cropCancel">Cancel</button>
+      <button id="cropDone" class="primary">Done</button>
+    </div>
   </div>
   <div id="opts">
     <label for="cols">Columns</label>
@@ -118,7 +148,10 @@
   const posToWidth = p => WIDTHS[Math.min(9, Math.max(0, Math.round(p)))];
   const widthToPos = w => { let b = 0; for (let i = 1; i < WIDTHS.length; i++) if (Math.abs(Math.log(WIDTHS[i] / w)) < Math.abs(Math.log(WIDTHS[b] / w))) b = i; return b; };
 
-  let img = null, imgW = 0, imgH = 0;
+  let img = null, imgW = 0, imgH = 0;   // working image = original, rotated and cropped
+  let orig = null;                       // original photo as loaded
+  let crop = null;                       // { rot, x, y, w, h, r } in rotated-original pixels; r = locked ratio w/h (0 = free)
+  let cropping = false, cropBackup = null, rotCache = null;
   let grayCache = null;
   let scale = 1, ox = 0, oy = 0;      // screen = img*scale + o
   let dpr = window.devicePixelRatio || 1;
@@ -257,7 +290,8 @@
     if (!img) return;
     ctx.setTransform(scale * dpr, 0, 0, scale * dpr, ox * dpr, oy * dpr);
     ctx.imageSmoothingQuality = 'high';
-    drawScene(ctx, settings(), 1 / scale);
+    if (cropping) drawCrop(ctx, 1 / scale);
+    else drawScene(ctx, settings(), 1 / scale);
   }
 
   function resize() {
@@ -267,13 +301,15 @@
     view.height = Math.round(r.height * dpr);
     render();
   }
-  function fitScale() { const r = stage.getBoundingClientRect(), m = 12; return Math.min((r.width - 2 * m) / imgW, (r.height - 2 * m) / imgH); }
+  // Size of what is on screen: the working image, or the whole rotated original while cropping.
+  function dims() { if (cropping) { const s = rotSource(); return [s.width, s.height]; } return [imgW, imgH]; }
+  function fitScale() { const r = stage.getBoundingClientRect(), m = cropping ? 24 : 12, [w, h] = dims(); return Math.min((r.width - 2 * m) / w, (r.height - 2 * m) / h); }
   function fit() {
     if (!img) return;
-    const r = stage.getBoundingClientRect();
+    const r = stage.getBoundingClientRect(), [w, h] = dims();
     scale = fitScale();
-    ox = (r.width - imgW * scale) / 2;
-    oy = (r.height - imgH * scale) / 2;
+    ox = (r.width - w * scale) / 2;
+    oy = (r.height - h * scale) / 2;
     render();
   }
 
@@ -285,7 +321,33 @@
     catch {
       bmp = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = URL.createObjectURL(f); });
     }
-    img = bmp; imgW = bmp.width; imgH = bmp.height;
+    orig = bmp; rotCache = null;
+    crop = { rot: 0, x: 0, y: 0, w: bmp.width, h: bmp.height, r: 0 };
+    if (cropping) exitCrop(false);
+    applyCrop();
+    $('empty').classList.add('loaded'); $('pick2').classList.add('show'); $('cropBtn').classList.add('show');
+    if ($('square').checked) autoGrid();
+    syncUI(); save(); fit();
+  }
+  // Rotated original (cached per rotation).
+  function rotSource() {
+    if (crop.rot === 0) return orig;
+    if (rotCache && rotCache.rot === crop.rot) return rotCache.c;
+    const W = orig.width, H = orig.height, side = crop.rot % 180 !== 0;
+    const c = document.createElement('canvas');
+    c.width = side ? H : W; c.height = side ? W : H;
+    const g = c.getContext('2d');
+    g.translate(c.width / 2, c.height / 2); g.rotate(crop.rot * Math.PI / 180); g.drawImage(orig, -W / 2, -H / 2);
+    rotCache = { rot: crop.rot, c };
+    return c;
+  }
+  // Build the working image from original + crop, then the grayscale copy.
+  function applyCrop() {
+    const src = rotSource(), x = Math.round(crop.x), y = Math.round(crop.y);
+    const w = Math.max(1, Math.round(crop.w)), h = Math.max(1, Math.round(crop.h));
+    if (crop.rot === 0 && x === 0 && y === 0 && w === src.width && h === src.height) img = src;
+    else { const c = document.createElement('canvas'); c.width = w; c.height = h; c.getContext('2d').drawImage(src, x, y, w, h, 0, 0, w, h); img = c; }
+    imgW = img.width; imgH = img.height;
     grayCache = document.createElement('canvas');
     grayCache.width = imgW; grayCache.height = imgH;
     const g = grayCache.getContext('2d');
@@ -294,10 +356,106 @@
     const d = g.getImageData(0, 0, imgW, imgH), a = d.data;
     for (let k = 0; k < a.length; k += 4) { const y = a[k] * .299 + a[k + 1] * .587 + a[k + 2] * .114; a[k] = a[k + 1] = a[k + 2] = y; }
     g.putImageData(d, 0, 0);
-    $('empty').classList.add('loaded'); $('pick2').classList.add('show');
-    if ($('square').checked) autoGrid();
-    syncUI(); save(); fit();
   }
+
+  // ---------- crop mode ----------
+  const HANDLE = 26; // touch radius in screen px
+  function drawCrop(c, unit) {
+    const src = rotSource(), W = src.width, H = src.height, k = crop;
+    c.drawImage(src, 0, 0);
+    c.fillStyle = 'rgba(0,0,0,0.6)';
+    c.beginPath(); c.rect(0, 0, W, H); c.rect(k.x, k.y, k.w, k.h); c.fill('evenodd');
+    c.strokeStyle = 'rgba(255,255,255,0.5)'; c.lineWidth = unit;
+    c.beginPath();
+    for (let i = 1; i < 3; i++) {
+      c.moveTo(k.x + k.w * i / 3, k.y); c.lineTo(k.x + k.w * i / 3, k.y + k.h);
+      c.moveTo(k.x, k.y + k.h * i / 3); c.lineTo(k.x + k.w, k.y + k.h * i / 3);
+    }
+    c.stroke();
+    c.strokeStyle = '#fff'; c.lineWidth = 2 * unit; c.strokeRect(k.x, k.y, k.w, k.h);
+    // corner brackets
+    const L = Math.min(22 * unit, k.w / 3, k.h / 3), t = 4 * unit;
+    c.fillStyle = '#fff';
+    for (const [cx, cy, sx, sy] of [[k.x, k.y, 1, 1], [k.x + k.w, k.y, -1, 1], [k.x, k.y + k.h, 1, -1], [k.x + k.w, k.y + k.h, -1, -1]]) {
+      c.fillRect(sx > 0 ? cx - t / 2 : cx - L + t / 2, sy > 0 ? cy - t / 2 : cy - t / 2, L, t);
+      c.fillRect(cx - t / 2, sy > 0 ? cy - t / 2 : cy - L + t / 2, t, L);
+    }
+    if (!k.r) { // edge ticks (edges are draggable only in free mode)
+      const e = Math.min(18 * unit, k.w / 4, k.h / 4);
+      c.fillRect(k.x + k.w / 2 - e, k.y - t / 2, 2 * e, t); c.fillRect(k.x + k.w / 2 - e, k.y + k.h - t / 2, 2 * e, t);
+      c.fillRect(k.x - t / 2, k.y + k.h / 2 - e, t, 2 * e); c.fillRect(k.x + k.w - t / 2, k.y + k.h / 2 - e, t, 2 * e);
+    }
+  }
+  const toImg = p => ({ x: (p.x - ox) / scale, y: (p.y - oy) / scale });
+  // What the finger grabbed: corner, edge, the inside (move) or nothing.
+  function cropHit(p) {
+    const q = toImg(p), k = crop, tol = HANDLE / scale;
+    const nl = Math.abs(q.x - k.x) < tol, nr = Math.abs(q.x - (k.x + k.w)) < tol;
+    const nt = Math.abs(q.y - k.y) < tol, nb = Math.abs(q.y - (k.y + k.h)) < tol;
+    const inX = q.x > k.x - tol && q.x < k.x + k.w + tol, inY = q.y > k.y - tol && q.y < k.y + k.h + tol;
+    if (!inX || !inY) return null;
+    const h = (nl ? 'w' : nr ? 'e' : '') ; const v = (nt ? 'n' : nb ? 's' : '');
+    if (h && v) return v + h;
+    if (!k.r && (h || v)) return v || h;
+    if (q.x > k.x && q.x < k.x + k.w && q.y > k.y && q.y < k.y + k.h) return 'move';
+    return null;
+  }
+  const MINC = 24; // min crop size, screen px
+  function cropDrag(d, start, p) {
+    const src = rotSource(), W = src.width, H = src.height, a = start.rect;
+    const q = toImg(p), q0 = toImg(start.p), dx = q.x - q0.x, dy = q.y - q0.y, min = MINC / scale;
+    const k = crop;
+    if (d === 'move') {
+      k.x = Math.min(W - a.w, Math.max(0, a.x + dx)); k.y = Math.min(H - a.h, Math.max(0, a.y + dy)); return;
+    }
+    let l = a.x, t = a.y, r = a.x + a.w, b = a.y + a.h;
+    if (d.includes('w')) l = Math.min(r - min, Math.max(0, a.x + dx));
+    if (d.includes('e')) r = Math.max(l + min, Math.min(W, a.x + a.w + dx));
+    if (d.includes('n')) t = Math.min(b - min, Math.max(0, a.y + dy));
+    if (d.includes('s')) b = Math.max(t + min, Math.min(H, a.y + a.h + dy));
+    if (k.r && d.length === 2) {
+      // keep ratio, anchored at the opposite corner; limited by the photo bounds
+      const ax = d.includes('w') ? r : l, ay = d.includes('n') ? b : t;
+      let w = r - l, h = b - t;
+      if (w / h > k.r) w = h * k.r; else h = w / k.r;
+      const maxW = d.includes('w') ? ax : W - ax, maxH = d.includes('n') ? ay : H - ay;
+      if (w > maxW) { w = maxW; h = w / k.r; }
+      if (h > maxH) { h = maxH; w = h * k.r; }
+      l = d.includes('w') ? ax - w : ax; r = l + w;
+      t = d.includes('n') ? ay - h : ay; b = t + h;
+    }
+    k.x = l; k.y = t; k.w = r - l; k.h = b - t;
+  }
+  // Largest rect with ratio r centred on the current crop, inside the photo.
+  function setRatio(r) {
+    const src = rotSource(), W = src.width, H = src.height, k = crop;
+    k.r = r;
+    if (!r) return;
+    let w = W, h = w / r; if (h > H) { h = H; w = h * r; }
+    const cx = k.x + k.w / 2, cy = k.y + k.h / 2;
+    k.x = Math.min(W - w, Math.max(0, cx - w / 2)); k.y = Math.min(H - h, Math.max(0, cy - h / 2)); k.w = w; k.h = h;
+  }
+  function markRatio() {
+    let best = null;
+    for (const b of document.querySelectorAll('#ratios button')) {
+      const r = +b.dataset.r; b.classList.remove('on');
+      if (Math.abs(r - crop.r) < 1e-3) best = b;
+    }
+    if (best) best.classList.add('on');
+  }
+  function enterCrop() {
+    if (!img) return;
+    cropping = true; cropBackup = { ...crop };
+    document.body.classList.add('cropping'); markRatio(); fit();
+  }
+  function exitCrop(apply) {
+    if (!apply && cropBackup) crop = cropBackup;
+    cropping = false; cropBackup = null; drag = null;
+    document.body.classList.remove('cropping');
+    if (apply) { applyCrop(); syncUI(); }
+    fit();
+  }
+  let drag = null; // { d, p, rect }
   $('file').addEventListener('change', e => { loadFile(e.target.files[0]); e.target.value = ''; });
 
   // ---------- gestures: pinch zoom, pan, wheel, double-tap ----------
@@ -347,6 +505,13 @@
 
   stage.addEventListener('pointerdown', e => {
     if (e.target.closest('button')) return; // let the photo button get its tap
+    if (cropping) {
+      if (pts.size === 0) { const d = cropHit(local(e)); drag = d ? { d, p: local(e), rect: { ...crop } } : null; }
+      else drag = null; // second finger: pinch instead
+      try { stage.setPointerCapture(e.pointerId); } catch {}
+      pts.set(e.pointerId, local(e)); last = snapshot();
+      return;
+    }
     if (pts.size === 0 && e.isPrimary && (!img || local(e).y < PULL_EDGE)) pull = { id: e.pointerId, y0: local(e).y, dy: 0 };
     else if (pull) { endPull(false); }
     try { stage.setPointerCapture(e.pointerId); } catch {}
@@ -360,6 +525,7 @@
   stage.addEventListener('pointermove', e => {
     if (!pts.has(e.pointerId)) return;
     pts.set(e.pointerId, local(e));
+    if (cropping && drag && pts.size === 1) { cropDrag(drag.d, drag, local(e)); last = snapshot(); render(); return; }
     if (pull && pull.id === e.pointerId) {
       pull.dy = local(e).y - pull.y0;
       if (pull.dy > 8) { showPull(pull.dy); last = snapshot(); return; } // pulling: don't pan
@@ -373,6 +539,7 @@
   const up = e => {
     if (pull && pull.id === e.pointerId) endPull(e.type === 'pointerup' && pull.dy >= PULL_GO);
     pts.delete(e.pointerId); last = pts.size ? snapshot() : null;
+    if (!pts.size) drag = null;
   };
   stage.addEventListener('pointerup', up);
   stage.addEventListener('pointercancel', up);
@@ -413,6 +580,20 @@
   $('fit').addEventListener('click', fit);
   $('pick').addEventListener('click', () => $('file').click());
   $('pick2').addEventListener('click', () => $('file').click());
+  $('cropBtn').addEventListener('click', enterCrop);
+  $('cropDone').addEventListener('click', () => exitCrop(true));
+  $('cropCancel').addEventListener('click', () => exitCrop(false));
+  $('cropReset').addEventListener('click', () => {
+    crop = { rot: 0, x: 0, y: 0, w: orig.width, h: orig.height, r: 0 }; markRatio(); fit();
+  });
+  $('cropRot').addEventListener('click', () => {
+    // rotate 90° clockwise; the crop rect and the locked ratio rotate with the photo
+    const H = rotSource().height, k = crop;
+    crop = { rot: (k.rot + 90) % 360, x: H - (k.y + k.h), y: k.x, w: k.h, h: k.w, r: k.r ? 1 / k.r : 0 };
+    markRatio(); fit();
+  });
+  for (const b of document.querySelectorAll('#ratios button'))
+    b.addEventListener('click', () => { setRatio(+b.dataset.r); markRatio(); render(); });
 
   $('export').addEventListener('click', async () => {
     if (!img) { $('file').click(); return; }
