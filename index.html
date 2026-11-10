@@ -97,8 +97,7 @@
     <div class="full">
       <label><input id="square" type="checkbox" checked> Square grid</label>
       <label><input id="diag" type="checkbox"> Diagonals</label>
-      <label><input id="labels" type="checkbox"> Labels</label>
-      <label><input id="edges" type="checkbox"> Edge labels</label>
+      <label><input id="edges" type="checkbox"> Edge numbers</label>
       <label><input id="gray" type="checkbox"> Black &amp; white</label>
     </div>
   </div>
@@ -111,7 +110,7 @@
   const $ = id => document.getElementById(id);
   const view = $('view'), ctx = view.getContext('2d');
   const stage = $('stage');
-  const ui = ['square','width','alpha','hue','diag','labels','edges','gray'];
+  const ui = ['square','width','alpha','hue','diag','edges','gray'];
   const KEY = 'goodgrid.settings.v4';
   const MAXN = 100;
   // Line width: 10 roughly geometric steps (screen px).
@@ -137,7 +136,6 @@
       alpha: +$('alpha').value / 100,
       color: tone === 'black' ? '#000' : tone === 'white' ? '#fff' : `hsl(${+$('hue').value},100%,50%)`,
       diag: $('diag').checked,
-      labels: $('labels').checked,
       edges: $('edges').checked,
       gray: $('gray').checked,
     };
@@ -223,23 +221,6 @@
       }
       c.stroke();
     }
-    if (s.labels) {
-      const fs = Math.max(Math.min(g.cellW, g.cellH) * 0.16, 11 * unit);
-      c.globalAlpha = Math.min(1, s.alpha + 0.1);
-      c.font = `600 ${fs}px system-ui,sans-serif`;
-      c.textBaseline = 'top';
-      const pad = fs * 0.25;
-      for (let i = 0; i < nc; i++) for (let j = 0; j < nr; j++) {
-        const t = colName(i) + (j + 1);
-        const x = i * g.cellW + pad + c.lineWidth, y = j * g.cellH + pad + c.lineWidth;
-        const w = c.measureText(t).width;
-        if (y + fs > imgH || x + w > imgW) continue;
-        c.fillStyle = 'rgba(0,0,0,0.45)';
-        c.fillRect(x - pad / 2, y - pad / 2, w + pad, fs + pad / 2);
-        c.fillStyle = s.color;
-        c.fillText(t, x, y);
-      }
-    }
     if (s.edges) {
       // Column numbers along the top edge, row numbers along the left edge, centred on each cell.
       const fs = Math.max(Math.min(g.cellW, g.cellH) * 0.16, 11 * unit);
@@ -267,7 +248,6 @@
     }
     c.restore();
   }
-  function colName(i) { let s = ''; i++; while (i > 0) { const r = (i - 1) % 26; s = String.fromCharCode(65 + r) + s; i = Math.floor((i - 1) / 26); } return s; }
 
   let raf = 0;
   function render() { if (!raf) raf = requestAnimationFrame(() => { raf = 0; paint(); }); }
@@ -401,9 +381,6 @@
   // ---------- controls ----------
   for (const k of ui) $(k).addEventListener('input', () => { if (k === 'hue') tone = 'hue'; syncUI(); save(); render(); });
   $('hue').addEventListener('pointerdown', () => { if (tone !== 'hue') { tone = 'hue'; syncUI(); save(); render(); } });
-  // Cell labels and edge labels overlap and say the same thing: keep only one on.
-  $('labels').addEventListener('change', () => { if ($('labels').checked && $('edges').checked) { $('edges').checked = false; save(); render(); } });
-  $('edges').addEventListener('change', () => { if ($('edges').checked && $('labels').checked) { $('labels').checked = false; save(); render(); } });
   for (const b of document.querySelectorAll('#tones button'))
     b.addEventListener('click', () => { tone = b.dataset.tone; syncUI(); save(); render(); });
   // Turning square off: freeze the auto count to a whole number.

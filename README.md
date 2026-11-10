@@ -11,7 +11,7 @@ Griglia per disegnare da foto. Gratis, senza pubblicità, offline.
 ## Funzioni
 - Celle quadrate o righe × colonne (1–40)
 - Colore, spessore, opacità delle linee
-- Diagonali, coordinate (A1, B2…), bianco e nero
+- Diagonali, numeri di righe e colonne sui bordi, bianco e nero
 - Zoom con pinch, pan, doppio tap per riadattare
 - Export PNG a risoluzione originale (menu Condividi su Android)
 
