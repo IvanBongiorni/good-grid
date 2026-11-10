@@ -660,11 +660,10 @@
       const c = document.createElement('canvas');
       c.width = imgW; c.height = imgH;
       drawScene(c.getContext('2d'), settings(), 1 / fitScale()); // line width as seen at "fit" zoom
-      // JPEG: ~3x faster to encode than PNG on a full-size photo, and ~5x smaller to share
-      const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.92));
+      const blob = await new Promise(r => c.toBlob(r, 'image/png')); // lossless, full resolution
       c.width = c.height = 0; // free the canvas memory right away
-      const name = `grid-${Date.now()}.jpg`;
-      const file = new File([blob], name, { type: 'image/jpeg' });
+      const name = `grid-${Date.now()}.png`;
+      const file = new File([blob], name, { type: 'image/png' });
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
         try { await navigator.share({ files: [file], title: 'Good Grid' }); return; }
         catch (err) { if (err.name === 'AbortError') return; }

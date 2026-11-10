@@ -13,6 +13,6 @@ Griglia per disegnare da foto. Gratis, senza pubblicità, offline.
 - Colore, spessore, opacità delle linee
 - Diagonali, numeri di righe e colonne sui bordi, bianco e nero
 - Zoom con pinch, pan, doppio tap per riadattare
-- Export JPEG a risoluzione originale (menu Condividi su Android)
+- Export PNG a risoluzione originale (menu Condividi su Android)
 
 Nessun server: la foto non lascia mai il telefono.
