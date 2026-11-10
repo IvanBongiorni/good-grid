@@ -241,7 +241,7 @@
       }
     }
     if (s.edges) {
-      // Column letters along the top edge, row numbers along the left edge, centred on each cell.
+      // Column numbers along the top edge, row numbers along the left edge, centred on each cell.
       const fs = Math.max(Math.min(g.cellW, g.cellH) * 0.16, 11 * unit);
       c.globalAlpha = Math.min(1, s.alpha + 0.1);
       c.font = `600 ${fs}px system-ui,sans-serif`;
@@ -255,7 +255,7 @@
       for (let i = 0; i < nc; i++) {
         const x = Math.min(i * g.cellW + g.cellW / 2, (i * g.cellW + imgW) / 2);
         if (x + fs > imgW) continue;
-        tag(colName(i), x, top);
+        tag(String(i + 1), x, top);
       }
       for (let j = 0; j < nr; j++) {
         const y = Math.min(j * g.cellH + g.cellH / 2, (j * g.cellH + imgH) / 2);
