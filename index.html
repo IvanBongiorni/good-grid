@@ -338,9 +338,20 @@
     crop = { rot: 0, x: 0, y: 0, w: bmp.width, h: bmp.height, r: 0 };
     if (cropping) exitCrop(false);
     applyCrop();
+    autoColor(bmp);
     $('empty').classList.add('loaded'); $('pick2').classList.add('show'); $('cropBtn').classList.add('show');
     if ($('square').checked) autoGrid();
     syncUI(); save(); fit();
+  }
+  // Pick a grid colour that stands out from the photo's dominant channel:
+  // mostly green -> red, mostly blue -> yellow, mostly red -> light blue.
+  function autoColor(src) {
+    const n = 64, c = document.createElement('canvas'); c.width = c.height = n;
+    const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(src, 0, 0, n, n);
+    const a = g.getImageData(0, 0, n, n).data; let R = 0, G = 0, B = 0;
+    for (let k = 0; k < a.length; k += 4) { R += a[k]; G += a[k + 1]; B += a[k + 2]; }
+    const hue = G >= R && G >= B ? 0 : B >= R ? 60 : 195;
+    tone = 'hue'; $('hue').value = hue;
   }
   // Rotated original (cached per rotation).
   function rotSource() {
