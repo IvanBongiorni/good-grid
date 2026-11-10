@@ -18,9 +18,8 @@
   canvas#view { position:absolute; inset:0; width:100%; height:100%; display:block; }
   #empty { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center;
     justify-content:center; gap:14px; text-align:center; padding:24px; color:var(--muted); }
-  #empty.loaded { inset:auto; top:10px; left:10px; padding:0; }
-  #empty.loaded .msg { display:none; }
-  #empty.loaded #pick { padding:8px 12px; background:rgba(0,0,0,.6); border-color:#555; color:#fff; font-weight:500; }
+  #empty.loaded { display:none; }
+  #pick2:not(.show) { display:none; }
   #zoom { position:absolute; top:10px; right:10px; background:rgba(0,0,0,.55); color:#fff; padding:4px 8px;
     border-radius:8px; font-size:13px; font-variant-numeric:tabular-nums; pointer-events:none; opacity:0; transition:opacity .3s; }
   #zoom.show { opacity:1; }
@@ -82,6 +81,7 @@
 
 <div id="panel">
   <div id="bar">
+    <button id="pick2">New photo</button>
     <span class="grow"></span>
     <button id="fit" title="Fit to screen">Fit</button>
     <button id="export" class="primary">Export</button>
@@ -287,7 +287,7 @@
     const d = g.getImageData(0, 0, imgW, imgH), a = d.data;
     for (let k = 0; k < a.length; k += 4) { const y = a[k] * .299 + a[k + 1] * .587 + a[k + 2] * .114; a[k] = a[k + 1] = a[k + 2] = y; }
     g.putImageData(d, 0, 0);
-    $('empty').classList.add('loaded'); $('pick').textContent = 'New photo';
+    $('empty').classList.add('loaded'); $('pick2').classList.add('show');
     if ($('square').checked) autoGrid();
     syncUI(); save(); fit();
   }
@@ -405,6 +405,7 @@
   });
   $('fit').addEventListener('click', fit);
   $('pick').addEventListener('click', () => $('file').click());
+  $('pick2').addEventListener('click', () => $('file').click());
 
   $('export').addEventListener('click', async () => {
     if (!img) { $('file').click(); return; }
