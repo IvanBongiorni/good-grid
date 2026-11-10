@@ -52,7 +52,12 @@
     border-radius:50%; background:var(--hue,#f00); border:3px solid #fff; box-shadow:0 0 0 1px #0006; }
   input.hue::-moz-range-thumb { width:18px; height:18px; border-radius:50%; background:var(--hue,#f00);
     border:3px solid #fff; box-shadow:0 0 0 1px #0006; }
-  #hueO span { display:inline-block; width:18px; height:18px; border-radius:50%; vertical-align:middle; border:1px solid #fff6; }
+  #tones { display:flex; justify-content:flex-end; gap:6px; }
+  #tones button { width:22px; height:22px; padding:0; border-radius:50%; border:1px solid #888; position:relative; }
+  #tones button::after { content:''; position:absolute; inset:-10px -3px; } /* bigger tap area */
+  #tones button.on { box-shadow:0 0 0 2px var(--panel), 0 0 0 4px var(--accent); }
+  input.hue.off::-webkit-slider-thumb { background:#555; }
+  input.hue.off::-moz-range-thumb { background:#555; }
   input[type=checkbox] { width:20px; height:20px; accent-color:var(--accent); margin:0; }
   input[type=file] { display:none; }
   @media (min-width:700px) { #panel { padding-left:24px; padding-right:24px; } #opts { gap:10px 16px; } }
@@ -81,7 +86,7 @@
     <label for="rows">Rows</label>
     <div class="num"><button data-for="rows" data-d="-1" aria-label="Fewer rows">−</button><input id="rows" type="text" inputmode="numeric" autocomplete="off" value="5"><button data-for="rows" data-d="1" aria-label="More rows">+</button><span class="hint" id="rowsH"></span></div>
     <label for="width">Line width</label><input id="width" type="range" min="1" max="20" value="3"><output id="widthO"></output>
-    <label for="hue">Color</label><input id="hue" class="hue" type="range" min="0" max="359" value="3"><output id="hueO"><span></span></output>
+    <label for="hue">Color</label><input id="hue" class="hue" type="range" min="0" max="359" value="3"><div id="tones"><button data-tone="black" style="background:#000" aria-label="Black"></button><button data-tone="white" style="background:#fff" aria-label="White"></button></div>
     <label for="alpha">Opacity</label><input id="alpha" type="range" min="10" max="100" value="100"><output id="alphaO"></output>
     <div class="full">
       <label><input id="square" type="checkbox" checked> Square grid</label>
@@ -107,6 +112,7 @@
   let grayCache = null;
   let scale = 1, ox = 0, oy = 0;      // screen = img*scale + o
   let dpr = window.devicePixelRatio || 1;
+  let tone = 'hue';                   // 'hue' | 'black' | 'white'
   let anchor = 'cols';                // in square mode: which count the user set last
   const counts = { cols: 5, rows: 5 };  // integer counts typed by the user
 
@@ -118,17 +124,18 @@
       rows: counts.rows,
       width: +$('width').value,
       alpha: +$('alpha').value / 100,
-      color: `hsl(${+$('hue').value},100%,50%)`,
+      color: tone === 'black' ? '#000' : tone === 'white' ? '#fff' : `hsl(${+$('hue').value},100%,50%)`,
       diag: $('diag').checked,
       labels: $('labels').checked,
       gray: $('gray').checked,
     };
   }
-  function save() { try { localStorage.setItem(KEY, JSON.stringify({ ...settings(), anchor })); } catch {} }
+  function save() { try { localStorage.setItem(KEY, JSON.stringify({ ...settings(), anchor, tone })); } catch {} }
   function load() {
     let s; try { s = JSON.parse(localStorage.getItem(KEY)); } catch {}
     if (!s) return;
     if (s.anchor === 'rows' || s.anchor === 'cols') anchor = s.anchor;
+    if (['hue', 'black', 'white'].includes(s.tone)) tone = s.tone;
     for (const k of ['cols', 'rows']) if (Number.isInteger(s[k]) && s[k] >= 1) counts[k] = Math.min(MAXN, s[k]);
     for (const k of ui) {
       if (!(k in s)) continue;
@@ -171,8 +178,9 @@
     }
     $('widthO').textContent = s.width;
     $('alphaO').textContent = Math.round(s.alpha * 100) + '%';
-    $('hue').style.setProperty('--hue', s.color);
-    $('hueO').firstChild.style.background = s.color;
+    $('hue').style.setProperty('--hue', `hsl(${+$('hue').value},100%,50%)`);
+    $('hue').classList.toggle('off', tone !== 'hue');
+    for (const b of document.querySelectorAll('#tones button')) b.classList.toggle('on', b.dataset.tone === tone);
   }
 
   // ---------- drawing ----------
@@ -322,7 +330,10 @@
   stage.addEventListener('wheel', e => { e.preventDefault(); const p = local(e); zoomAt(Math.exp(-e.deltaY * 0.0015), p.x, p.y); }, { passive: false });
 
   // ---------- controls ----------
-  for (const k of ui) $(k).addEventListener('input', () => { syncUI(); save(); render(); });
+  for (const k of ui) $(k).addEventListener('input', () => { if (k === 'hue') tone = 'hue'; syncUI(); save(); render(); });
+  $('hue').addEventListener('pointerdown', () => { if (tone !== 'hue') { tone = 'hue'; syncUI(); save(); render(); } });
+  for (const b of document.querySelectorAll('#tones button'))
+    b.addEventListener('click', () => { tone = b.dataset.tone; syncUI(); save(); render(); });
   // Turning square off: freeze the auto count to a whole number.
   $('square').addEventListener('change', () => {
     if (!$('square').checked && imgW) {
