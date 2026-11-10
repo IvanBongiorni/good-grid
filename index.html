@@ -14,7 +14,7 @@
   html,body { margin:0; height:100%; background:var(--bg); color:var(--fg);
     font:15px/1.3 system-ui,-apple-system,Roboto,sans-serif; overflow:hidden; }
   body { display:flex; flex-direction:column; height:100dvh; }
-  #stage { position:relative; flex:1; min-height:0; touch-action:none; overflow:hidden; }
+  #stage { position:relative; flex:1; min-height:0; touch-action:none; overflow:hidden; user-select:none; -webkit-user-select:none; }
   canvas#view { position:absolute; inset:0; width:100%; height:100%; display:block; }
   #empty { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center;
     justify-content:center; gap:14px; text-align:center; padding:24px; color:var(--muted); }
@@ -24,6 +24,10 @@
   #zoom { position:absolute; top:10px; right:10px; background:rgba(0,0,0,.55); color:#fff; padding:4px 8px;
     border-radius:8px; font-size:13px; font-variant-numeric:tabular-nums; pointer-events:none; opacity:0; transition:opacity .3s; }
   #zoom.show { opacity:1; }
+  #ptr { position:absolute; top:0; left:50%; width:40px; height:40px; margin-left:-20px; border-radius:50%;
+    background:#2a2a2a; border:1px solid #444; color:var(--fg); display:flex; align-items:center; justify-content:center;
+    font-size:22px; pointer-events:none; opacity:0; transform:translateY(-48px); z-index:5; }
+  #ptr.ready { background:var(--accent); color:#000; border-color:var(--accent); }
   button, .btn { background:#2a2a2a; color:var(--fg); border:1px solid #3a3a3a; border-radius:10px;
     padding:10px 14px; font:inherit; cursor:pointer; }
   button.primary, .btn.primary { background:var(--accent); border-color:var(--accent); color:#000; font-weight:600; }
@@ -73,6 +77,7 @@
     <button id="pick" class="primary">Choose photo</button>
   </div>
   <div id="zoom"></div>
+  <div id="ptr">&#x21bb;</div>
 </div>
 
 <div id="panel">
@@ -312,8 +317,31 @@
     const [p, q] = a;
     return { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2, d: Math.hypot(p.x - q.x, p.y - q.y), n: 2 };
   }
+  // ---------- pull to refresh ----------
+  // Without a photo: pull down anywhere. With a photo: only from the top edge, so it doesn't fight panning.
+  const PULL_EDGE = 44, PULL_GO = 90;
+  let pull = null; // { id, y0, dy }
+  function showPull(dy) {
+    const el = $('ptr'), d = Math.min(dy, PULL_GO * 1.4);
+    el.style.transition = 'none';
+    el.style.opacity = Math.min(1, d / PULL_GO);
+    el.style.transform = `translateY(${d * 0.7 - 48}px) rotate(${d * 3}deg)`;
+    el.classList.toggle('ready', dy >= PULL_GO);
+  }
+  function hidePull() {
+    const el = $('ptr');
+    el.style.transition = 'transform .2s, opacity .2s';
+    el.style.opacity = 0; el.style.transform = 'translateY(-48px)'; el.classList.remove('ready');
+  }
+  function endPull(go) {
+    pull = null; hidePull();
+    if (go && (!img || confirm('Reload the app? The current photo will be removed.'))) location.reload();
+  }
+
   stage.addEventListener('pointerdown', e => {
-    if (e.target.closest('#empty')) return; // let the photo button get its tap
+    if (e.target.closest('button')) return; // let the photo button get its tap
+    if (pts.size === 0 && e.isPrimary && (!img || local(e).y < PULL_EDGE)) pull = { id: e.pointerId, y0: local(e).y, dy: 0 };
+    else if (pull) { endPull(false); }
     try { stage.setPointerCapture(e.pointerId); } catch {}
     pts.set(e.pointerId, local(e));
     last = snapshot();
@@ -325,13 +353,20 @@
   stage.addEventListener('pointermove', e => {
     if (!pts.has(e.pointerId)) return;
     pts.set(e.pointerId, local(e));
+    if (pull && pull.id === e.pointerId) {
+      pull.dy = local(e).y - pull.y0;
+      if (pull.dy > 8) { showPull(pull.dy); last = snapshot(); return; } // pulling: don't pan
+    }
     const cur = snapshot();
     if (!img || !last || cur.n !== last.n) { last = cur; return; }
     ox += cur.x - last.x; oy += cur.y - last.y;
     if (cur.n === 2 && last.d > 0) zoomAt(cur.d / last.d, cur.x, cur.y);
     last = cur; render();
   });
-  const up = e => { pts.delete(e.pointerId); last = pts.size ? snapshot() : null; };
+  const up = e => {
+    if (pull && pull.id === e.pointerId) endPull(e.type === 'pointerup' && pull.dy >= PULL_GO);
+    pts.delete(e.pointerId); last = pts.size ? snapshot() : null;
+  };
   stage.addEventListener('pointerup', up);
   stage.addEventListener('pointercancel', up);
   stage.addEventListener('wheel', e => { e.preventDefault(); const p = local(e); zoomAt(Math.exp(-e.deltaY * 0.0015), p.x, p.y); }, { passive: false });
