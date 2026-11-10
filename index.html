@@ -29,6 +29,7 @@
   #ptr.ready { background:var(--accent); color:#000; border-color:var(--accent); }
   button, .btn { background:#2a2a2a; color:var(--fg); border:1px solid #3a3a3a; border-radius:10px;
     padding:10px 14px; font:inherit; cursor:pointer; }
+  button:disabled { opacity:.6; }
   button.primary, .btn.primary { background:var(--accent); border-color:var(--accent); color:#000; font-weight:600; }
   #panel { flex:none; background:var(--panel); border-top:1px solid #2c2c2c;
     padding:10px 14px calc(10px + env(safe-area-inset-bottom)); }
@@ -648,22 +649,33 @@
   for (const b of document.querySelectorAll('#ratios button'))
     b.addEventListener('click', () => { setRatio(+b.dataset.r); markRatio(); render(); });
 
+  const nextFrame = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
   $('export').addEventListener('click', async () => {
     if (!img) { $('file').click(); return; }
-    const c = document.createElement('canvas');
-    c.width = imgW; c.height = imgH;
-    drawScene(c.getContext('2d'), settings(), 1 / fitScale()); // line width as seen at "fit" zoom
-    const blob = await new Promise(r => c.toBlob(r, 'image/png'));
-    const name = `grid-${Date.now()}.png`;
-    const file = new File([blob], name, { type: 'image/png' });
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      try { await navigator.share({ files: [file], title: 'Good Grid' }); return; }
-      catch (err) { if (err.name === 'AbortError') return; }
+    const btn = $('export');
+    if (btn.disabled) return;
+    btn.disabled = true; btn.textContent = 'Exporting…';
+    await nextFrame(); // let the button repaint before the heavy work blocks the page
+    try {
+      const c = document.createElement('canvas');
+      c.width = imgW; c.height = imgH;
+      drawScene(c.getContext('2d'), settings(), 1 / fitScale()); // line width as seen at "fit" zoom
+      // JPEG: ~3x faster to encode than PNG on a full-size photo, and ~5x smaller to share
+      const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.92));
+      c.width = c.height = 0; // free the canvas memory right away
+      const name = `grid-${Date.now()}.jpg`;
+      const file = new File([blob], name, { type: 'image/jpeg' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try { await navigator.share({ files: [file], title: 'Good Grid' }); return; }
+        catch (err) { if (err.name === 'AbortError') return; }
+      }
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    } finally {
+      btn.disabled = false; btn.textContent = 'Export';
     }
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob); a.download = name;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   });
 
   if ('launchQueue' in window) {
