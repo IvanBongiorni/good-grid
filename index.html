@@ -43,6 +43,7 @@
   .num input:focus { outline:2px solid var(--accent); border-color:transparent; }
   .num .hint { color:var(--muted); font-size:13px; margin-left:4px; }
   input[type=range] { width:100%; accent-color:var(--accent); }
+  #width, #alpha { accent-color:var(--line, var(--accent)); }
   input.hue { -webkit-appearance:none; appearance:none; height:28px; background:transparent; margin:0; }
   input.hue::-webkit-slider-runnable-track { height:12px; border-radius:6px;
     background:linear-gradient(to right,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00); }
@@ -180,6 +181,8 @@
     $('alphaO').textContent = Math.round(s.alpha * 100) + '%';
     $('hue').style.setProperty('--hue', `hsl(${+$('hue').value},100%,50%)`);
     $('hue').classList.toggle('off', tone !== 'hue');
+    // black would vanish on the dark panel: show it as mid gray
+    $('opts').style.setProperty('--line', tone === 'black' ? '#777' : s.color);
     for (const b of document.querySelectorAll('#tones button')) b.classList.toggle('on', b.dataset.tone === tone);
   }
 
