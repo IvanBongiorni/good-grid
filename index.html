@@ -40,7 +40,14 @@
   body.cropping #cropbar { display:block; }
   #cropbar .row { display:flex; gap:8px; align-items:center; }
   #cropbar .row + .row { margin-top:10px; }
+  #cropbar button { white-space:nowrap; }
+  #cropbar .row:last-child { gap:6px; }
+  #cropbar .row:last-child button { padding:10px 11px; }
+  #cropbar #cropRot { padding:6px 12px; }
   #cropbar .grow { flex:1; }
+  #cropInfo { text-align:center; font-variant-numeric:tabular-nums; line-height:1.15; }
+  #cropInfo b { display:block; font-size:16px; }
+  #cropInfo small { color:var(--muted); font-size:11px; }
   #ratios { overflow-x:auto; scrollbar-width:none; }
   #ratios button { padding:8px 12px; white-space:nowrap; flex:none; }
   #ratios button.on { background:var(--accent); border-color:var(--accent); color:#000; font-weight:600; }
@@ -101,17 +108,23 @@
     <div class="row" id="ratios">
       <button data-r="0" class="on">Free</button>
       <button data-r="1">1:1</button>
-      <button data-r="1.3333333">4:3</button>
+      <button data-r="0.8">4:5</button>
+      <button data-r="1.25">5:4</button>
       <button data-r="0.75">3:4</button>
-      <button data-r="1.5">3:2</button>
+      <button data-r="1.3333333">4:3</button>
       <button data-r="0.6666667">2:3</button>
+      <button data-r="1.5">3:2</button>
+      <button data-r="0.5625">9:16</button>
+      <button data-r="1.7777778">16:9</button>
       <button data-r="0.7071068">A4 ▯</button>
       <button data-r="1.4142136">A4 ▭</button>
+      <button data-r="0.4285714">9:21</button>
+      <button data-r="2.3333333">21:9</button>
     </div>
     <div class="row">
-      <button id="cropRot" aria-label="Rotate 90°">⟳ 90°</button>
+      <button id="cropRot" aria-label="Rotate 90°" title="Rotate 90°" style="font-size:18px">⟳</button>
       <button id="cropReset">Reset</button>
-      <span class="grow"></span>
+      <span class="grow" id="cropInfo"></span>
       <button id="cropCancel">Cancel</button>
       <button id="cropDone" class="primary">Done</button>
     </div>
@@ -190,12 +203,12 @@
 
   // Effective grid. Square mode: cells are exact squares sized from the count the user set last;
   // the other count follows the image aspect and may end with a partial row/column.
-  function grid(s) {
-    if (s.square && imgW) {
-      if (anchor === 'rows') { const cell = imgH / s.rows; return { cols: imgW / cell, rows: s.rows, cellW: cell, cellH: cell }; }
-      const cell = imgW / s.cols; return { cols: s.cols, rows: imgH / cell, cellW: cell, cellH: cell };
+  function grid(s, W = imgW, H = imgH) {
+    if (s.square && W) {
+      if (anchor === 'rows') { const cell = H / s.rows; return { cols: W / cell, rows: s.rows, cellW: cell, cellH: cell }; }
+      const cell = W / s.cols; return { cols: s.cols, rows: H / cell, cellW: cell, cellH: cell };
     }
-    return { cols: s.cols, rows: s.rows, cellW: imgW / s.cols, cellH: imgH / s.rows };
+    return { cols: s.cols, rows: s.rows, cellW: W / s.cols, cellH: H / s.rows };
   }
   const fmt = n => Math.abs(n - Math.round(n)) < 0.05 ? String(Math.round(n)) : n.toFixed(1);
 
@@ -365,13 +378,15 @@
     c.drawImage(src, 0, 0);
     c.fillStyle = 'rgba(0,0,0,0.6)';
     c.beginPath(); c.rect(0, 0, W, H); c.rect(k.x, k.y, k.w, k.h); c.fill('evenodd');
-    c.strokeStyle = 'rgba(255,255,255,0.5)'; c.lineWidth = unit;
+    // preview of the grid you'll get, thin (0.4 px)
+    const s = settings(), g = grid(s, k.w, k.h);
+    c.save(); c.beginPath(); c.rect(k.x, k.y, k.w, k.h); c.clip();
+    c.strokeStyle = s.color; c.globalAlpha = 0.8; c.lineWidth = 0.4 * unit;
     c.beginPath();
-    for (let i = 1; i < 3; i++) {
-      c.moveTo(k.x + k.w * i / 3, k.y); c.lineTo(k.x + k.w * i / 3, k.y + k.h);
-      c.moveTo(k.x, k.y + k.h * i / 3); c.lineTo(k.x + k.w, k.y + k.h * i / 3);
-    }
-    c.stroke();
+    for (let i = 1; i < Math.ceil(g.cols - 1e-6); i++) { const x = k.x + i * g.cellW; c.moveTo(x, k.y); c.lineTo(x, k.y + k.h); }
+    for (let j = 1; j < Math.ceil(g.rows - 1e-6); j++) { const y = k.y + j * g.cellH; c.moveTo(k.x, y); c.lineTo(k.x + k.w, y); }
+    c.stroke(); c.restore();
+    showCropInfo();
     c.strokeStyle = '#fff'; c.lineWidth = 2 * unit; c.strokeRect(k.x, k.y, k.w, k.h);
     // corner brackets
     const L = Math.min(22 * unit, k.w / 3, k.h / 3), t = 4 * unit;
@@ -385,6 +400,15 @@
       c.fillRect(k.x + k.w / 2 - e, k.y - t / 2, 2 * e, t); c.fillRect(k.x + k.w / 2 - e, k.y + k.h - t / 2, 2 * e, t);
       c.fillRect(k.x - t / 2, k.y + k.h / 2 - e, t, 2 * e); c.fillRect(k.x + k.w - t / 2, k.y + k.h / 2 - e, t, 2 * e);
     }
+  }
+  function ratioText(w, h) {
+    const r = w / h;
+    for (let q = 1; q <= 10; q++) { const p = Math.round(r * q); if (p >= 1 && Math.abs(p / q - r) / r < 0.006) return p + ':' + q; }
+    return r >= 1 ? r.toFixed(2) + ':1' : '1:' + (1 / r).toFixed(2);
+  }
+  function showCropInfo() {
+    const w = Math.round(crop.w), h = Math.round(crop.h);
+    $('cropInfo').innerHTML = `<b>${ratioText(w, h)}</b><small>${w}×${h}</small>`;
   }
   const toImg = p => ({ x: (p.x - ox) / scale, y: (p.y - oy) / scale });
   // What the finger grabbed: corner, edge, the inside (move) or nothing.
@@ -425,6 +449,18 @@
       t = d.includes('n') ? ay - h : ay; b = t + h;
     }
     k.x = l; k.y = t; k.w = r - l; k.h = b - t;
+  }
+  // Pinch: scale the frame around its centre (ratio kept), follow the fingers' midpoint.
+  function cropPinch(st, cur) {
+    const src = rotSource(), W = src.width, H = src.height, a = st.rect, k = crop;
+    let f = st.s0.d > 0 ? cur.d / st.s0.d : 1;
+    const min = MINC / scale;
+    f = Math.max(f, min / a.w, min / a.h);
+    f = Math.min(f, W / a.w, H / a.h);
+    const w = a.w * f, h = a.h * f;
+    const cx = a.x + a.w / 2 + (cur.x - st.s0.x) / scale, cy = a.y + a.h / 2 + (cur.y - st.s0.y) / scale;
+    k.w = w; k.h = h;
+    k.x = Math.min(W - w, Math.max(0, cx - w / 2)); k.y = Math.min(H - h, Math.max(0, cy - h / 2));
   }
   // Largest rect with ratio r centred on the current crop, inside the photo.
   function setRatio(r) {
@@ -506,10 +542,11 @@
   stage.addEventListener('pointerdown', e => {
     if (e.target.closest('button')) return; // let the photo button get its tap
     if (cropping) {
-      if (pts.size === 0) { const d = cropHit(local(e)); drag = d ? { d, p: local(e), rect: { ...crop } } : null; }
-      else drag = null; // second finger: pinch instead
       try { stage.setPointerCapture(e.pointerId); } catch {}
       pts.set(e.pointerId, local(e)); last = snapshot();
+      if (pts.size === 1) { const d = cropHit(local(e)); drag = d ? { d, p: local(e), rect: { ...crop } } : null; }
+      else if (pts.size === 2) drag = { d: 'pinch', s0: last, rect: { ...crop } }; // two fingers: resize + move the frame
+      else drag = null;
       return;
     }
     if (pts.size === 0 && e.isPrimary && (!img || local(e).y < PULL_EDGE)) pull = { id: e.pointerId, y0: local(e).y, dy: 0 };
@@ -525,7 +562,11 @@
   stage.addEventListener('pointermove', e => {
     if (!pts.has(e.pointerId)) return;
     pts.set(e.pointerId, local(e));
-    if (cropping && drag && pts.size === 1) { cropDrag(drag.d, drag, local(e)); last = snapshot(); render(); return; }
+    if (cropping) {
+      if (drag && drag.d === 'pinch' && pts.size === 2) { cropPinch(drag, snapshot()); render(); return; }
+      if (drag && drag.d !== 'pinch' && pts.size === 1) { cropDrag(drag.d, drag, local(e)); last = snapshot(); render(); return; }
+      if (drag) return;
+    }
     if (pull && pull.id === e.pointerId) {
       pull.dy = local(e).y - pull.y0;
       if (pull.dy > 8) { showPull(pull.dy); last = snapshot(); return; } // pulling: don't pan
@@ -539,7 +580,7 @@
   const up = e => {
     if (pull && pull.id === e.pointerId) endPull(e.type === 'pointerup' && pull.dy >= PULL_GO);
     pts.delete(e.pointerId); last = pts.size ? snapshot() : null;
-    if (!pts.size) drag = null;
+    if (!pts.size || (drag && drag.d === 'pinch')) drag = null;
   };
   stage.addEventListener('pointerup', up);
   stage.addEventListener('pointercancel', up);
