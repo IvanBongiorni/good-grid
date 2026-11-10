@@ -86,7 +86,7 @@
     <div class="num"><button data-for="cols" data-d="-1" aria-label="Fewer columns">−</button><input id="cols" type="text" inputmode="numeric" autocomplete="off" value="5"><button data-for="cols" data-d="1" aria-label="More columns">+</button><span class="hint" id="colsH"></span></div>
     <label for="rows">Rows</label>
     <div class="num"><button data-for="rows" data-d="-1" aria-label="Fewer rows">−</button><input id="rows" type="text" inputmode="numeric" autocomplete="off" value="5"><button data-for="rows" data-d="1" aria-label="More rows">+</button><span class="hint" id="rowsH"></span></div>
-    <label for="width">Line width</label><input id="width" type="range" min="1" max="20" value="3"><output id="widthO"></output>
+    <label for="width">Line width</label><input id="width" type="range" min="0" max="100" value="60"><output id="widthO"></output>
     <label for="hue">Color</label><input id="hue" class="hue" type="range" min="0" max="359" value="3"><div id="tones"><button data-tone="black" style="background:#000" aria-label="Black"></button><button data-tone="white" style="background:#fff" aria-label="White"></button></div>
     <label for="alpha">Opacity</label><input id="alpha" type="range" min="10" max="100" value="100"><output id="alphaO"></output>
     <div class="full">
@@ -108,6 +108,10 @@
   const ui = ['square','width','alpha','hue','diag','labels','gray'];
   const KEY = 'goodgrid.settings.v4';
   const MAXN = 100;
+  // Line width slider is logarithmic: 0..100 -> WMIN..WMAX px, finer steps at the thin end.
+  const WMIN = 0.3, WMAX = 5;
+  const posToWidth = p => +(WMIN * Math.pow(WMAX / WMIN, p / 100)).toFixed(2);
+  const widthToPos = w => Math.round(100 * Math.log(Math.min(WMAX, Math.max(WMIN, w)) / WMIN) / Math.log(WMAX / WMIN));
 
   let img = null, imgW = 0, imgH = 0;
   let grayCache = null;
@@ -123,7 +127,7 @@
       square: $('square').checked,
       cols: counts.cols,
       rows: counts.rows,
-      width: +$('width').value,
+      width: posToWidth(+$('width').value),
       alpha: +$('alpha').value / 100,
       color: tone === 'black' ? '#000' : tone === 'white' ? '#fff' : `hsl(${+$('hue').value},100%,50%)`,
       diag: $('diag').checked,
@@ -142,7 +146,7 @@
       if (!(k in s)) continue;
       const el = $(k);
       if (el.type === 'checkbox') el.checked = !!s[k];
-      else el.value = k === 'alpha' ? Math.round(s[k] * 100) : s[k];
+      else el.value = k === 'alpha' ? Math.round(s[k] * 100) : k === 'width' ? widthToPos(+s[k]) : s[k];
     }
   }
 
@@ -177,7 +181,7 @@
       if (document.activeElement !== el) el.value = follower ? fmt(g[k]) : counts[k];
       $(k + 'H').textContent = follower ? 'auto' : '';
     }
-    $('widthO').textContent = s.width;
+    $('widthO').textContent = s.width < 1 ? s.width.toFixed(2).replace(/0$/, '') : s.width.toFixed(1).replace(/\.0$/, '');
     $('alphaO').textContent = Math.round(s.alpha * 100) + '%';
     $('hue').style.setProperty('--hue', `hsl(${+$('hue').value},100%,50%)`);
     $('hue').classList.toggle('off', tone !== 'hue');
@@ -203,7 +207,7 @@
     c.rect(0, 0, imgW, imgH);
     c.stroke();
     if (s.diag) {
-      c.lineWidth = Math.max(1, s.width * 0.6) * unit;
+      c.lineWidth = s.width * 0.6 * unit;
       c.beginPath();
       for (let i = 0; i < nc; i++) for (let j = 0; j < nr; j++) {
         const x0 = i * g.cellW, y0 = j * g.cellH, x1 = x0 + g.cellW, y1 = y0 + g.cellH;
