@@ -81,7 +81,9 @@
   input.hue.off::-webkit-slider-thumb { background:#555; }
   input.hue.off::-moz-range-thumb { background:#555; }
   input[type=checkbox] { width:20px; height:20px; accent-color:var(--accent); margin:0; }
-  input[type=file] { display:none; }
+  /* Rendered but invisible (not display:none): some Android WebView browsers ignore taps routed to a hidden input. */
+  #file { position:absolute; width:1px; height:1px; opacity:0; overflow:hidden; clip:rect(0 0 0 0); pointer-events:none; }
+  label.btn { display:inline-block; text-align:center; user-select:none; -webkit-user-select:none; }
   @media (min-width:700px) { #panel { padding-left:24px; padding-right:24px; } #opts { gap:10px 16px; } }
 </style>
 </head>
@@ -91,7 +93,7 @@
   <div id="empty">
     <div class="msg" style="font-size:20px;color:var(--fg)">Good Grid</div>
     <div class="msg">Load a photo to overlay a drawing grid.<br>Pinch to zoom, drag to move, double-tap to fit.</div>
-    <button id="pick" class="primary" style="margin-top:10px">Choose photo</button>
+    <label id="pick" for="file" class="btn primary" role="button" style="margin-top:10px">Choose photo</label>
     <div class="msg" style="font-size:13px;margin-top:6px">Good Grid is free, and always will be.<br>No ads, no tracking. From an artist, for artists.</div>
   </div>
   <div id="zoom"></div>
@@ -100,7 +102,7 @@
 
 <div id="panel">
   <div id="bar">
-    <button id="pick2">New photo</button>
+    <label id="pick2" for="file" class="btn" role="button">New photo</label>
     <button id="cropBtn">Crop</button>
     <span class="grow"></span>
     <button id="fit" title="Fit to screen">Fit</button>
@@ -553,7 +555,7 @@
   }
 
   stage.addEventListener('pointerdown', e => {
-    if (e.target.closest('button')) return; // let the photo button get its tap
+    if (e.target.closest('button, label')) return; // let the photo button get its tap
     if (cropping) {
       try { stage.setPointerCapture(e.pointerId); } catch {}
       pts.set(e.pointerId, local(e)); last = snapshot();
@@ -632,8 +634,7 @@
     setCount(k, d > 0 ? Math.floor(c) + 1 : Math.ceil(c) - 1);
   });
   $('fit').addEventListener('click', fit);
-  $('pick').addEventListener('click', () => $('file').click());
-  $('pick2').addEventListener('click', () => $('file').click());
+  // #pick / #pick2 are <label for="file">: the browser opens the picker natively, no JS .click() needed.
   $('cropBtn').addEventListener('click', enterCrop);
   $('cropDone').addEventListener('click', () => exitCrop(true));
   $('cropCancel').addEventListener('click', () => exitCrop(false));

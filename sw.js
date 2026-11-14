@@ -1,6 +1,6 @@
 // Network-first: online you always get the latest version from GitHub Pages,
 // offline it falls back to the cached copy.
-const CACHE = 'goodgrid-v3';
+const CACHE = 'goodgrid-v4';
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'privacy.html'];
 
 self.addEventListener('install', e => {
